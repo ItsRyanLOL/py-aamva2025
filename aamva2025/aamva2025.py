@@ -1,6 +1,7 @@
-# aamva.py
+# aamva2025.py
 #
 # Copyright © 2022 Rechner Fox <rechner@totallylegit.agency>
+#Updated by Ryan Wade
 #
 # This program is free software; you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -171,7 +172,7 @@ ISSUERS = {
 }
 
 
-class AAMVA:
+class AAMVA2025:
     def __init__(self, data=None, format=[ANY], strict=True):
         self.format = format
         assert not isinstance(format, str)
@@ -469,6 +470,8 @@ class AAMVA:
                 decode_function = self._decode_barcode_v8
             if version == 9:
                 decode_function = self._decode_barcode_v9
+            if version == 10:
+                decode_function = self._decode_barcode_v10
 
         # Seperate out subfiles, removing trailing empty list
         parsed_data = "\n".join(subfiles_raw)
@@ -1481,6 +1484,167 @@ class AAMVA:
             address2 = fields["DAH"].strip()
 
         hair = None  # (OPTIONAL 2016 b.)
+        if "DAZ" in list(fields.keys()):
+            hair = fields["DAZ"]  # Optional
+            assert hair in HAIRCOLOURS, "Invalid hair colour: {0}".format(hair)
+
+        # TODO: OPTIONAL 2013 fields c - h
+
+        # name suffix optional. No prefix field in this version.
+        try:
+            nameSuffix = fields["DCU"].strip()  # (OPTIONAL 2016 i.)
+        except KeyError:
+            nameSuffix = None
+
+        # TODO: OPTIONAL 2016 fields j - u
+
+        # v6 adds optional date fields DDH, DDI, and DDJ (Under 18/19/21 until)
+        arrival_dates = {}
+        if "DDH" in list(fields.keys()):
+            arrival_dates["under_18_until"] = self._parse_date(fields["DDH"])
+        if "DDI" in list(fields.keys()):
+            arrival_dates["under_19_until"] = self._parse_date(fields["DDI"])
+        if "DDJ" in list(fields.keys()):
+            arrival_dates["under_21_until"] = self._parse_date(fields["DDJ"])
+
+        # TODO: OPTIONAL 2016 field a.a.
+
+        rv = {
+            "first": firstname,
+            "last": lastname,
+            "middle": middlename,
+            "address": fields["DAG"].strip(),
+            "address2": address2,
+            "city": fields["DAI"].strip(),
+            "state": fields["DAJ"].strip(),
+            "country": country,
+            "IIN": issueIdentifier,
+            "license_number": fields["DAQ"].strip(),
+            "expiry": expiry,
+            "dob": dob,
+            "ZIP": fields["DAK"].strip(),
+            "class": vehicle_class,
+            "restrictions": restrictions,
+            "endorsements": endorsements,
+            "sex": sex,
+            "height": height,
+            "weight": weight,
+            "hair": hair,
+            "eyes": eyes,
+            "units": units,
+            "issued": issued,
+            "suffix": nameSuffix,
+            "prefix": None,
+            "document": fields["DCF"].strip(),
+            "arrival_dates": arrival_dates,
+            "card_type": card_type,
+            "version": 9,
+            "standards": (len(warnings) == 0),
+            "warnings": warnings,
+        }
+        return rv
+
+    def _decode_barcode_v10(self, fields, issueIdentifier):  # 2020 standard
+        warnings = []
+        # Add: "unspecified" sex option
+        # required fields
+        country = fields["DCG"]  # USA or CAN
+
+        # 2016 e, f, g, are required name fields
+        lastname = fields["DCS"].strip()  # (REQUIRED 2016 e)
+        firstname = fields["DAC"].strip()  # (REQUIRED 2016 f)
+        middlename = fields["DAD"].strip()  # (REQUIRED 2016 g)
+
+        # 2016 t, u, and v indicate if names are truncated:
+        if fields["DDE"] == "T":
+            lastname += "…"
+        if fields["DDF"] == "T":
+            firstname += "…"
+        if fields["DDG"] == "T":
+            middlename += "…"
+
+        # convert dates
+        dba = fields["DBA"]  # expiry (REQUIRED 2016 d.)
+        expiry = self._parse_date(dba, country)
+        dbd = fields["DBD"]  # issue date (REQUIRED 2016 h.)
+        issued = self._parse_date(dbd, country)
+        dbb = fields["DBB"]  # date of birth (REQUIRED 2016 i.)
+        dob = self._parse_date(dbb, country)
+
+        # jurisdiction-specific (required for DL only):
+        # FIXME - check if fields are empty
+        try:
+            vehicle_class = fields["DCA"].strip()  # (REQUIRED 2016 a.)
+            restrictions = fields["DCB"].strip()  # (REQUIRED 2016 b.)
+            endorsements = fields["DCD"].strip()  # (REQUIRED 2016 c.)
+            card_type = DRIVER_LICENSE
+        except KeyError:
+            # not a DL, use None instead
+            vehicle_class = None
+            restrictions = None
+            endorsements = None
+            card_type = IDENTITY_CARD
+
+        # Physical description
+        sex = fields["DBC"]  # (REQUIRED 2016 j.)
+        assert sex in "129", "Invalid sex"
+        if sex == "1":
+            sex = MALE
+        if sex == "2":
+            sex = FEMALE
+        if sex == "9":
+            sex = NOT_SPECIFIED
+
+        
+
+        height = fields["DAU"]  # (REQUIRED 2016 l.)
+        if height[-2:].lower() == "in":  # inches
+            height = int(height[0:3])
+            units = IMPERIAL
+            height = Height(height, format="USA")
+        elif height[-2:].lower() == "cm":  # metric
+            height = int(height[0:3])
+            units = METRIC
+            height = Height(height)
+        else:
+            height = None
+            #raise AssertionError("Invalid unit for height")
+
+        # 2016 m, n, o, p, are required address elements
+
+        # weight is optional
+        if units == METRIC:
+            try:
+                weight = Weight(None, int(fields["DAX"]))
+            except KeyError:
+                weight = None
+        elif units == IMPERIAL:
+            try:
+                weight = Weight(None, int(fields["DAW"]), "USA")
+            except KeyError:
+                weight = None
+        if weight is None:
+            # Try weight range
+            try:
+                weight = fields["DCE"]
+                if units == METRIC:
+                    weight = Weight(int(weight), format="ISO")
+                elif units == IMPERIAL:
+                    weight = Weight(int(weight), format="USA")
+            except KeyError:
+                weight = None
+
+        # optional fields:
+        eyes = None # (OPTIONAL 2020 a.)
+        if "DAY" in list(fields.keys()):
+            eyes = fields["DAY"]  # (REQUIRED 2016 k.)
+            assert eyes in EYECOLOURS, "Invalid eye colour: {0}".format(eyes)
+       
+        address2 = None  # (OPTIONAL 2020 a.)
+        if "DAH" in list(fields.keys()):
+            address2 = fields["DAH"].strip()
+
+        hair = None  # (OPTIONAL 2020 b.)
         if "DAZ" in list(fields.keys()):
             hair = fields["DAZ"]  # Optional
             assert hair in HAIRCOLOURS, "Invalid hair colour: {0}".format(hair)
