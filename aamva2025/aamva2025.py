@@ -45,7 +45,7 @@
 
 import datetime
 
-debug = False
+debug = True
 
 if debug:
     import pprint
