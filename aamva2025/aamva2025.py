@@ -1438,8 +1438,7 @@ class AAMVA2025:
         if sex == "9":
             sex = NOT_SPECIFIED
 
-        eyes = fields["DAY"]  # (REQUIRED 2016 k.)
-        assert eyes in EYECOLOURS, "Invalid eye colour: {0}".format(eyes)
+
 
         height = fields["DAU"]  # (REQUIRED 2016 l.)
         if height[-2:].lower() == "in":  # inches
@@ -1479,6 +1478,11 @@ class AAMVA2025:
                 weight = None
 
         # optional fields:
+        eyes = None
+        if "DAY" in list(fields.keys()): # (OPTIONAL 2016 a.)
+            eyes = fields["DAY"]  # (REQUIRED 2016 k.)
+            assert eyes in EYECOLOURS, "Invalid eye colour: {0}".format(eyes)
+        
         address2 = None  # (OPTIONAL 2016 a.)
         if "DAH" in list(fields.keys()):
             address2 = fields["DAH"].strip()
