@@ -1975,7 +1975,7 @@ def log(string):
 if __name__ == "__main__":
     import pprint
 
-    parser = AAMVA()
+    parser = AAMVA2025()
 
     # ~ while True:
     # ~ try: #Reading from an HID card reader (stdin)
@@ -1987,13 +1987,13 @@ if __name__ == "__main__":
     # reading from a serial barcode reader
     import serial
 
-    ser = serial.Serial("/dev/ttyACM0")
+    ser = serial.Serial("COM5")
     while True:
-        charbuffer = ""
+        charbuffer = ''
         print("Scan a license")
-        while charbuffer[-2:] != "\r\n":
+        while charbuffer[-3:] != "$$\r":
             char = ser.read(1)
-            charbuffer += char
+            charbuffer += char.decode('UTF-8')
         try:
             print("Got string: " + repr(charbuffer) + "\n\n\n\n")
             pprint.pprint(parser.decode_barcode(str(charbuffer)))
